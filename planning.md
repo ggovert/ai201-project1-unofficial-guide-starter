@@ -107,17 +107,19 @@ If migrating to production for real users without budget constraints, I would ev
 
 ---
 
+
 ## Architecture
 
 ```mermaid
 graph TD
-    A[Document Ingestion: data/raw txt & md] --> B[Chunking: CharacterTextSplitter 500/100]
-    B --> C[Embedding: all-MiniLM-L6-v2 via sentence-transformers]
-    C --> D[Vector Store: FAISS / Chroma DB Local Index]
-    E[User Query] --> F[Retrieval: Vector Similarity Match top-k=4]
+    A["Document Ingestion: data/raw txt & md"] --> B["Chunking: CharacterTextSplitter 500/100"]
+    B --> C["Embedding: all-MiniLM-L6-v2 via sentence-transformers"]
+    C --> D["Vector Store: FAISS / Chroma DB Local Index"]
+    E["User Query"] --> F["Retrieval: Vector Similarity Match top-k=4"]
     D --> F
-    F --> G[Generation: System Prompt Context Injection to LLM]
-    G --> H[Final Unofficial Skincare Guide Output]
+    F --> G["Generation: System Prompt Context Injection to LLM"]
+    G --> H["Final Unofficial Skincare Guide Output"]
+```
 ---
 
 ## AI Tool Plan
