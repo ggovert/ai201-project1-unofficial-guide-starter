@@ -9,114 +9,176 @@
 
 ## Domain
 
-<!-- What domain did you choose? Why is this knowledge valuable and hard to find through official channels? -->
-
+This system serves as an unofficial guide for skincare beginners living in hot, humid tropical climates who are on a budget. Standard skincare advice often recommends heavy, expensive products that clog pores or melt off in extreme humidity and sweat. By aggregating community-vetted threads and ingredient guides focused on lightweight, affordable formulations (like gels and fluid sunscreens), this tool helps users build an effective, sweat-proof routine without overspending.
 ---
 
 ## Documents
 
-<!-- List your specific sources: URLs, subreddit names, forum threads, or file descriptions.
-     Aim for at least 10 sources that together cover different subtopics or perspectives within your domain. -->
-
 | # | Source | Description | URL or location |
 |---|--------|-------------|-----------------|
-| 1 | | | |
-| 2 | | | |
-| 3 | | | |
-| 4 | | | |
-| 5 | | | |
-| 6 | | | |
-| 7 | | | |
-| 8 | | | |
-| 9 | | | |
-| 10 | | | |
-
+| 1 | 1883 Magazine | The Beauty Editor's Guide to What to Buy When Travelling to Asia | https://1883magazine.com/the-beauty-editors-guide-to-what-to-buy-when-travelling-to-asia/ |
+| 2 | V10 Plus Blog | Skin Care Secrets for Thriving in Southeast Asia's Tropical Climate | https://v10plus.com/blogs/news/skin-care-secrets-for-thriving-in-southeast-asias-tropical-climate |
+| 3 | Dewsia Article | Ultimate Skincare Routine for Hot and Humid Tropical Weather | https://dewsia.com/skincare-routine-tropical-weather/ |
+| 4 | r/AsianBeauty | Best & HG Products for Tropical/humid climates | https://www.reddit.com/r/AsianBeauty/comments/1cffssa/best_hg_products_for_tropicalhumid_climates/ |
+| 5 | r/SkincareAddiction | Routine Help: How humid weather completely changed my routine | https://www.reddit.com/r/SkincareAddiction/comments/1otyffj/routine_help_how_humid_weather_completely_changed/ |
+| 6 | r/AsianBeauty | Oily/combo acne prone, sensitive, humid climate routines | https://www.reddit.com/r/AsianBeauty/comments/1ryi2ea/oily_combo_acne_prone_sensitive_humid_climate/ |
+| 7 | r/AsianBeauty | Day and night moisturiser choices for tropical climates | https://www.reddit.com/r/AsianBeauty/comments/xuezv1/for_those_living_in_tropical_climates_what_day/ |
+| 8 | r/AsianBeauty | Massive community list of budget HG products | https://www.reddit.com/r/AsianBeauty/comments/14jrgkc/what_are_your_budget_hg_products/ |
+| 9 | IncideCoder Wiki | Niacinamide: Sebum regulation & barrier repair mechanics | https://incidecoder.com/ingredients/niacinamide |
+| 10 | IncideCoder Wiki | Salicylic Acid / BHA: Lipophilic pore clearing properties | https://incidecoder.com/ingredients/salicylic-acid |
+| 11 | SkinCarisma Wiki | Hyaluronic Acid: Performance and hydration mechanics | https://www.skincarisma.com/ingredients/hyaluronic-acid |
+| 12 | IncideCoder Wiki | Dimethicone: Lightweight silicone barriers vs heavy occlusives | https://incidecoder.com/ingredients/dimethicone |
+| 13 | SkinCarisma Wiki | Sunscreen Filters: Matte, sweat-resistant UV barrier profiling | https://www.skincarisma.com/ingredients/sunscreen-filters |
 ---
+
 
 ## Chunking Strategy
 
-<!-- How will you split documents into chunks?
-     State your chunk size (in tokens or characters), overlap size, and explain why those
-     numbers fit the structure of your documents.
-     A review-heavy corpus warrants different chunking than a long FAQ. -->
-
 **Chunk size:**
+- Reddit (via PRAW): 1 comment = 1 chunk (no fixed token split)
+- Website (scraped articles/pages): 300–500 tokens per chunk
 
 **Overlap:**
+- Reddit: Parent comment first 150 characters prepended to reply chunks
+- Website: 75 token overlap between chunks
 
 **Reasoning:**
+Two sources are used — Reddit and a skincare website — each with
+different document structures, so chunking is handled per source.
+
+**Reddit (PRAW + recursive):**
+PRAW exposes Reddit as a comment tree where each comment is already
+an atomic unit of opinion. We chunk per comment using recursive
+depth-first traversal. Top-level comments (depth 0) are chunked
+standalone. Replies (depth 1) prepend the first 150 characters of
+their parent for context. Traversal stops at depth 2 to avoid
+off-topic banter. No token splitting is needed since Reddit comments
+naturally average 80–200 tokens.
+
+**Website (scraped pages):**
+Website content is long-form and continuous — articles, ingredient
+guides, product descriptions — with no natural atomic boundary like
+Reddit comments have. RecursiveCharacterTextSplitter is used with a
+300–500 token chunk size and 75 token overlap. The overlap preserves
+sentence continuity at chunk boundaries, important when a paragraph
+spans a split. Chunking is token-based (tiktoken cl100k_base) to stay
+predictable for the embedding model.
+
+**Shared metadata tagged on every chunk:**
+- source_type: "reddit" | "website"
+- url
+- score (Reddit only)
+- date
+- depth (Reddit only)
+
+This lets the retriever filter or weight by source at query time —
+useful if you want to prioritize community experience (Reddit) over
+curated content (website) or vice versa.
 
 ---
 
 ## Retrieval Approach
 
-<!-- Which embedding model are you using (e.g., all-MiniLM-L6-v2 via sentence-transformers)?
-     How many chunks will you retrieve per query (top-k)?
-     If you were deploying this for real users and cost wasn't a constraint, what tradeoffs
-     would you weigh in choosing a different embedding model — context length, multilingual
-     support, accuracy on domain-specific text, latency? -->
+**Embedding model:** `all-MiniLM-L6-v2` (via sentence-transformers)
 
-**Embedding model:**
+**Top-k:** 4 chunks
 
-**Top-k:**
-
-**Production tradeoff reflection:**
+**Production tradeoff reflection:** 
+If migrating to production for real users without budget constraints, I would evaluate a frontier embedding model like OpenAI's `text-embedding-3-large` or Cohere's `embed-english-v3.0`. The `all-MiniLM-L6-v2` model caps out at a 256-token context window, forcing a tighter chunking scheme. A larger production model allows for longer context windows, superior handling of domain-specific chemical terminology (e.g., distinguishing between ethylhexyl methoxycinnamate and zinc oxide), and drastically better multilingual/slang alignment—crucial given that regional beauty subreddits heavily employ localized slang, brand short-hands, and mixed languages.
 
 ---
 
 ## Evaluation Plan
 
-<!-- List your 5 test questions with their expected correct answers.
-     Questions should be specific enough that you can judge whether the system's response
-     is right or wrong. "What are good dining halls?" is too vague.
-     "What do students say about wait times at [dining hall name] during lunch?" is testable. -->
-
 | # | Question | Expected answer |
 |---|----------|-----------------|
-| 1 | | |
-| 2 | | |
-| 3 | | |
-| 4 | | |
-| 5 | | |
+| 1 | I live in a very humid climate and my face is a grease slick by noon. What budget morning routine will keep me matte without drying out? | Use a gentle water-based/gel cleanser, a lightweight sebum-regulating serum (like Niacinamide), and skip heavy creams entirely. Finish with a sebum-controlling chemical or milk-type fluid sunscreen that dries matte. |
+| 2 | Are heavy cream moisturizers bad for tropical weather? What affordable alternatives should a beginner look for? | Yes, heavy occlusive creams can trap sweat and sebum in high humidity, causing breakouts and a greasy texture. Beginners should look for affordable oil-free water-gels, gel-creams, or aloe/soothing gels (e.g., Holika Holika, Illiyoon, or Isntree). |
+| 3 | I sweat a lot walking around. What is a highly-rated, cheap sunscreen that won't melt off or leave a white cast? | Look for lightweight, fluid/milk-type sunscreens with matte or sebum-control finishes (like Bioré UV Aqua Rich Watery Essence or Skin Aqua UV Super Moisture Gel). They are cheap, absorb cleanly, and do not leave heavy white masks. |
+| 4 | My skin feels tight but looks oily (dehydrated oily). How do I fix this using cheap products available in tropical regions? | Hydrate the deeper skin layers using lightweight humectants like Hyaluronic Acid or watery toners (such as Hada Labo Lotion) which pull moisture out of the humid air, instead of applying heavy topical oils. |
+| 5 | How often should a beginner use a BHA exfoliant to clear out sweat-clogged pores without damaging their skin barrier in hot weather? | A beginner should start slowly, using a Salicylic Acid / BHA cleanser or toner only 2 to 3 times a week at night. Over-exfoliating can strip the skin barrier, leading to even more oily rebound compensation. |
 
 ---
 
 ## Anticipated Challenges
 
-<!-- What could go wrong? Name at least two specific risks with reasoning.
-     Consider: noisy or inconsistent documents, missing source attribution, off-topic
-     retrieval, chunks that split key information across boundaries. -->
-
-1.
-
-2.
+1. **Noisy Text and Formatting Anomalies:** Reddit threads contain broken links, markdown tables, user flairs, emojis, and highly casual grammatical structures. Raw scraping will introduce noise that could skew tokenization and decrease embedding relevance.
+2. **Context Fragmentation across Boundaries:** Because community members often reply in rapid, bulleted laundry lists of multiple steps (Cleanser -> Toner -> Sunscreen), a fixed character splitter risks dividing a single user's cohesive morning routine across two distinct chunks, destroying its contextual logic during retrieval.
 
 ---
 
 ## Architecture
 
-<!-- Draw a diagram of your pipeline showing the five stages:
-     Document Ingestion → Chunking → Embedding + Vector Store → Retrieval → Generation
-     Label each stage with the tool or library you're using.
-     You can use ASCII art, a Mermaid diagram, or embed a sketch as an image.
-     You'll use this diagram as context when prompting AI tools to implement each stage. -->
-
+```mermaid
+graph TD
+    A[Document Ingestion: data/raw txt & md] --> B[Chunking: CharacterTextSplitter 500/100]
+    B --> C[Embedding: all-MiniLM-L6-v2 via sentence-transformers]
+    C --> D[Vector Store: FAISS / Chroma DB Local Index]
+    E[User Query] --> F[Retrieval: Vector Similarity Match top-k=4]
+    D --> F
+    F --> G[Generation: System Prompt Context Injection to LLM]
+    G --> H[Final Unofficial Skincare Guide Output]
 ---
 
 ## AI Tool Plan
 
-<!-- For each part of the pipeline below, describe:
-     - Which AI tool you plan to use (Claude, Copilot, ChatGPT, etc.)
-     - What you'll give it as input (which sections of this planning.md, which requirements)
-     - What you expect it to produce
-     - How you'll verify the output matches your spec
-
-     "I'll use AI to help me code" is not a plan.
-     "I'll give Claude my Chunking Strategy section and ask it to implement chunk_text()
-     with my specified chunk size and overlap" is a plan. -->
 
 **Milestone 3 — Ingestion and chunking:**
+AI Tool: Gemini Flash 3.5 / Claude Sonnet 4.5 / GitHub Copilot /MiniMax
+
+Input Context: Provide the 'Documents' and 'Chunking Strategy' sections
+of this planning document, alongside basic project directory scaffolding.
+Include the two-source structure (Reddit via PRAW + website scraping)
+and the per-source chunking rules.
+
+Expected Output: An automated ingestion script (ingest.py) that:
+- Scrapes Reddit using PRAW with recursive depth-first comment traversal
+  (max depth 2), chunking 1 comment = 1 chunk, prepending 150 characters
+  of parent context to reply chunks
+- Scrapes website content and applies RecursiveCharacterTextSplitter
+  at 300–500 tokens with 75 token overlap (tiktoken cl100k_base)
+- Tags every chunk with shared metadata: source_type, url, date, score
+  (Reddit only), depth (Reddit only)
+- Saves all chunks to a single skincare_chunks.json file
+
+Verification: I will write a sanity check that prints 3 random chunks
+from each source (Reddit + website) to visually confirm that Reddit
+chunks are not mid-comment splits, reply chunks carry parent context,
+and website chunks do not break awkwardly mid-sentence.
 
 **Milestone 4 — Embedding and retrieval:**
+AI Tool: Gemini Flash 3.5 / Claude Sonnet 4.5 / GitHub Copilot /MiniMax
+
+Input Context: Provide 'Retrieval Approach' details, the output chunks
+from Milestone 3 (skincare_chunks.json), and documentation for
+sentence-transformers and ChromaDB local persistent storage.
+
+Expected Output: A vector script (vector_store.py) that:
+- Instantiates all-MiniLM-L6-v2 via sentence-transformers
+- Creates embeddings for all chunks from skincare_chunks.json
+- Persists the ChromaDB collection locally to vectors/chroma_db/
+- Runs a manual semantic query returning top-k=4 matched chunks
+  with source_type, url, score, and depth metadata visible
+
+Verification: Pass Evaluation Question #1 directly into the script
+and confirm all 4 retrieved chunks originate from high-humidity
+Reddit or website sources by inspecting the source_type and url
+metadata fields printed alongside each result.
 
 **Milestone 5 — Generation and interface:**
+AI Tool: Gemini Flash 3.5 / Claude Sonnet 4.5 / GitHub Copilot /MiniMax
+
+Input Context: Provide the complete planning.md, the retrieval
+functions from Milestone 4, and the UI requirement (Streamlit or CLI).
+
+Expected Output: A generation script (app.py) with a system prompt
+that injects the top-k=4 retrieved chunks as grounded context,
+enforces an empathetic peer voice that explicitly references source
+insights, and handles low-confidence retrieval gracefully by
+responding "I don't have enough information from my sources to answer
+that confidently." Exposed via a clean local Streamlit UI or CLI loop.
+
+Verification: Systematically run all 5 Evaluation Questions through
+the UI and verify outputs align with the Evaluation Plan table.
+Flag any response that does not cite a source or breaks the peer voice
+constraint as a failure case.
