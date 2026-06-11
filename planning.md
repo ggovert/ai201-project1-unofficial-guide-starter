@@ -1,15 +1,10 @@
 # Project 1 Planning: The Unofficial Guide
-
-> Write this document before you write any pipeline code.
-> Your spec and architecture diagram are what you'll use to direct AI tools (Claude, Copilot, etc.) to generate your implementation — the more specific they are, the more useful the generated code will be.
-> Update the Retrieval Approach and Chunking Strategy sections if you change your approach during implementation.
-> Update this file before starting any stretch features.
-
 ---
 
 ## Domain
 
 This system serves as an unofficial guide for skincare beginners living in hot, humid tropical climates who are on a budget. Standard skincare advice often recommends heavy, expensive products that clog pores or melt off in extreme humidity and sweat. By aggregating community-vetted threads and ingredient guides focused on lightweight, affordable formulations (like gels and fluid sunscreens), this tool helps users build an effective, sweat-proof routine without overspending.
+
 ---
 
 ## Documents
@@ -26,16 +21,14 @@ This system serves as an unofficial guide for skincare beginners living in hot, 
 | 8 | r/AsianBeauty | Massive community list of budget HG products | https://www.reddit.com/r/AsianBeauty/comments/14jrgkc/what_are_your_budget_hg_products/ |
 | 9 | IncideCoder Wiki | Niacinamide: Sebum regulation & barrier repair mechanics | https://incidecoder.com/ingredients/niacinamide |
 | 10 | IncideCoder Wiki | Salicylic Acid / BHA: Lipophilic pore clearing properties | https://incidecoder.com/ingredients/salicylic-acid |
-| 11 | SkinCarisma Wiki | Hyaluronic Acid: Performance and hydration mechanics | https://www.skincarisma.com/ingredients/hyaluronic-acid |
-| 12 | IncideCoder Wiki | Dimethicone: Lightweight silicone barriers vs heavy occlusives | https://incidecoder.com/ingredients/dimethicone |
-| 13 | SkinCarisma Wiki | Sunscreen Filters: Matte, sweat-resistant UV barrier profiling | https://www.skincarisma.com/ingredients/sunscreen-filters |
----
+| 11 | IncideCoder Wiki | Dimethicone: Lightweight silicone barriers vs heavy occlusives | https://incidecoder.com/ingredients/dimethicone |
 
+---
 
 ## Chunking Strategy
 
 **Chunk size:**
-- Reddit (via PRAW): 1 comment = 1 chunk (no fixed token split)
+- Reddit (via `.json` scraping): 1 comment = 1 chunk (no fixed token split)
 - Website (scraped articles/pages): 300–500 tokens per chunk
 
 **Overlap:**
@@ -43,33 +36,48 @@ This system serves as an unofficial guide for skincare beginners living in hot, 
 - Website: 75 token overlap between chunks
 
 **Reasoning:**
-Two sources are used — Reddit and a skincare website — each with
+Two sources are used — Reddit and skincare websites — each with
 different document structures, so chunking is handled per source.
 
-**Reddit (PRAW + recursive):**
-PRAW exposes Reddit as a comment tree where each comment is already
-an atomic unit of opinion. We chunk per comment using recursive
-depth-first traversal. Top-level comments (depth 0) are chunked
-standalone. Replies (depth 1) prepend the first 150 characters of
-their parent for context. Traversal stops at depth 2 to avoid
-off-topic banter. No token splitting is needed since Reddit comments
-naturally average 80–200 tokens.
+**Reddit (direct `.json` + recursive traversal):**
+Reddit's self-service API (PRAW) was closed to new developers in 2025.
+Instead, Reddit data is fetched by appending `.json` to any post URL
+and calling it via `requests` with a descriptive User-Agent header.
+This returns the same structured comment tree that PRAW used internally —
+each comment arrives as a clean JSON object with score, depth, and
+created_utc already attached. No credentials or API key are required.
 
-**Website (scraped pages):**
-Website content is long-form and continuous — articles, ingredient
-guides, product descriptions — with no natural atomic boundary like
-Reddit comments have. RecursiveCharacterTextSplitter is used with a
-300–500 token chunk size and 75 token overlap. The overlap preserves
-sentence continuity at chunk boundaries, important when a paragraph
-spans a split. Chunking is token-based (tiktoken cl100k_base) to stay
-predictable for the embedding model.
+Each comment is treated as one atomic chunk. Recursive depth-first
+traversal walks the tree up to depth 2. Top-level comments (depth 0)
+are chunked standalone. Replies (depth 1) prepend the first 150
+characters of their parent comment so the chunk remains meaningful
+in isolation. Traversal stops at depth 2 to avoid off-topic banter.
+No token splitting is needed since Reddit comments naturally average
+80–200 tokens.
+
+**Website (requests + BeautifulSoup):**
+Website content is long-form HTML — articles, ingredient guides,
+product descriptions — with no natural atomic boundary. `requests`
+fetches the raw HTML and BeautifulSoup strips noise tags (nav, footer,
+script, style) before extracting clean body text. That text is then
+split using RecursiveCharacterTextSplitter at 300–500 tokens with
+75 token overlap. Chunking is token-based (tiktoken cl100k_base) to
+stay predictable for the embedding model.
+
+**Why `.json` for Reddit instead of BeautifulSoup:**
+BeautifulSoup parses raw HTML — it would require fragile CSS selectors
+to extract comment text, scores, and thread depth from Reddit's page
+structure, which changes frequently. Reddit's `.json` endpoint returns
+pre-structured data with all metadata already attached, making it
+faster, more reliable, and simpler to maintain. BeautifulSoup is
+reserved for external websites where no structured API exists.
 
 **Shared metadata tagged on every chunk:**
-- source_type: "reddit" | "website"
-- url
-- score (Reddit only)
-- date
-- depth (Reddit only)
+- `source_type`: `"reddit"` | `"website"`
+- `url`
+- `score` (Reddit only)
+- `date` (Reddit only)
+- `depth` (Reddit only)
 
 This lets the retriever filter or weight by source at query time —
 useful if you want to prioritize community experience (Reddit) over
@@ -81,10 +89,22 @@ curated content (website) or vice versa.
 
 **Embedding model:** `all-MiniLM-L6-v2` (via sentence-transformers)
 
+**Vector store:** ChromaDB (local persistent storage)
+
 **Top-k:** 4 chunks
 
-**Production tradeoff reflection:** 
-If migrating to production for real users without budget constraints, I would evaluate a frontier embedding model like OpenAI's `text-embedding-3-large` or Cohere's `embed-english-v3.0`. The `all-MiniLM-L6-v2` model caps out at a 256-token context window, forcing a tighter chunking scheme. A larger production model allows for longer context windows, superior handling of domain-specific chemical terminology (e.g., distinguishing between ethylhexyl methoxycinnamate and zinc oxide), and drastically better multilingual/slang alignment—crucial given that regional beauty subreddits heavily employ localized slang, brand short-hands, and mixed languages.
+**Production tradeoff reflection:**
+If migrating to production for real users without budget constraints,
+I would evaluate a frontier embedding model like OpenAI's
+`text-embedding-3-large` or Cohere's `embed-english-v3.0`. The
+`all-MiniLM-L6-v2` model caps out at a 256-token context window,
+forcing a tighter chunking scheme. A larger production model allows
+for longer context windows, superior handling of domain-specific
+chemical terminology (e.g., distinguishing between ethylhexyl
+methoxycinnamate and zinc oxide), and drastically better
+multilingual/slang alignment — crucial given that regional beauty
+subreddits heavily employ localized slang, brand short-hands, and
+mixed languages.
 
 ---
 
@@ -102,54 +122,74 @@ If migrating to production for real users without budget constraints, I would ev
 
 ## Anticipated Challenges
 
-1. **Noisy Text and Formatting Anomalies:** Reddit threads contain broken links, markdown tables, user flairs, emojis, and highly casual grammatical structures. Raw scraping will introduce noise that could skew tokenization and decrease embedding relevance.
-2. **Context Fragmentation across Boundaries:** Because community members often reply in rapid, bulleted laundry lists of multiple steps (Cleanser -> Toner -> Sunscreen), a fixed character splitter risks dividing a single user's cohesive morning routine across two distinct chunks, destroying its contextual logic during retrieval.
+1. **Noisy Text and Formatting Anomalies:** Reddit threads contain broken
+   links, markdown tables, user flairs, emojis, and highly casual
+   grammatical structures. Raw scraping will introduce noise that could
+   skew tokenization and decrease embedding relevance.
+
+2. **Context Fragmentation across Boundaries:** Because community members
+   often reply in rapid, bulleted laundry lists of multiple steps
+   (Cleanser → Toner → Sunscreen), a fixed character splitter risks
+   dividing a single user's cohesive morning routine across two distinct
+   chunks, destroying its contextual logic during retrieval.
+
+3. **Reddit `.json` Rate Limiting:** Without an API key, Reddit may
+   throttle requests if too many are made in quick succession. A
+   `time.sleep(2)` delay between post fetches and a descriptive
+   User-Agent header mitigates this risk for a small-scale project.
 
 ---
-
 
 ## Architecture
 
 ```mermaid
 graph TD
-    A["Document Ingestion: data/raw txt & md"] --> B["Chunking: CharacterTextSplitter 500/100"]
-    B --> C["Embedding: all-MiniLM-L6-v2 via sentence-transformers"]
-    C --> D["Vector Store: FAISS / Chroma DB Local Index"]
-    E["User Query"] --> F["Retrieval: Vector Similarity Match top-k=4"]
-    D --> F
-    F --> G["Generation: System Prompt Context Injection to LLM"]
-    G --> H["Final Unofficial Skincare Guide Output"]
+    A["Reddit Posts — direct .json requests"] --> B1["Reddit Chunking: Recursive depth-first traversal max depth 2, 1 comment = 1 chunk, parent context prepend"]
+    C["Websites — requests + BeautifulSoup"] --> B2["Website Chunking: RecursiveCharacterTextSplitter 300-500 tokens, 75 token overlap, tiktoken cl100k_base"]
+    B1 --> D["Shared Metadata Tagging: source_type, url, score, depth, date"]
+    B2 --> D
+    D --> E["Embedding: all-MiniLM-L6-v2 via sentence-transformers"]
+    E --> F["Vector Store: ChromaDB Local Persistent vectors/chroma_db/"]
+    G["User Query"] --> H["Retrieval: Vector Similarity top-k=4 with metadata filter"]
+    F --> H
+    H --> I["Generation: System Prompt + Context Injection to LLM"]
+    I --> J["Final Skincare Guide Output"]
 ```
+
 ---
 
 ## AI Tool Plan
 
-
 **Milestone 3 — Ingestion and chunking:**
-AI Tool: Gemini Flash 3.5 / Claude Sonnet 4.5 / GitHub Copilot /MiniMax
+AI Tool: Gemini Flash 2.0 / Claude Sonnet 4.5 / GitHub Copilot / MiniMax
 
 Input Context: Provide the 'Documents' and 'Chunking Strategy' sections
 of this planning document, alongside basic project directory scaffolding.
-Include the two-source structure (Reddit via PRAW + website scraping)
+Include the two-source structure (Reddit via `.json` + website scraping)
 and the per-source chunking rules.
 
 Expected Output: An automated ingestion script (ingest.py) that:
-- Scrapes Reddit using PRAW with recursive depth-first comment traversal
-  (max depth 2), chunking 1 comment = 1 chunk, prepending 150 characters
-  of parent context to reply chunks
-- Scrapes website content and applies RecursiveCharacterTextSplitter
-  at 300–500 tokens with 75 token overlap (tiktoken cl100k_base)
+- Fetches Reddit posts by appending `.json` to each post URL via
+  `requests`, no API key required, with `time.sleep(2)` rate limiting
+- Walks the comment tree recursively (max depth 2), chunking
+  1 comment = 1 chunk, prepending 150 characters of parent context
+  to reply chunks
+- Scrapes website content using `requests` + BeautifulSoup and applies
+  RecursiveCharacterTextSplitter at 300–500 tokens with 75 token
+  overlap (tiktoken cl100k_base)
 - Tags every chunk with shared metadata: source_type, url, date, score
   (Reddit only), depth (Reddit only)
-- Saves all chunks to a single skincare_chunks.json file
+- Saves all chunks to data/skincare_chunks.json
 
 Verification: I will write a sanity check that prints 3 random chunks
 from each source (Reddit + website) to visually confirm that Reddit
 chunks are not mid-comment splits, reply chunks carry parent context,
 and website chunks do not break awkwardly mid-sentence.
 
+---
+
 **Milestone 4 — Embedding and retrieval:**
-AI Tool: Gemini Flash 3.5 / Claude Sonnet 4.5 / GitHub Copilot /MiniMax
+AI Tool: Gemini Flash 2.0 / Claude Sonnet 4.5 / GitHub Copilot / MiniMax
 
 Input Context: Provide 'Retrieval Approach' details, the output chunks
 from Milestone 3 (skincare_chunks.json), and documentation for
@@ -167,8 +207,10 @@ and confirm all 4 retrieved chunks originate from high-humidity
 Reddit or website sources by inspecting the source_type and url
 metadata fields printed alongside each result.
 
+---
+
 **Milestone 5 — Generation and interface:**
-AI Tool: Gemini Flash 3.5 / Claude Sonnet 4.5 / GitHub Copilot /MiniMax
+AI Tool: Gemini Flash 2.0 / Claude Sonnet 4.5 / GitHub Copilot / MiniMax / LLM using groq api
 
 Input Context: Provide the complete planning.md, the retrieval
 functions from Milestone 4, and the UI requirement (Streamlit or CLI).
