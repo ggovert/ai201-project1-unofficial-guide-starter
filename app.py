@@ -94,11 +94,20 @@ No explanation. No punctuation. Just one word."""
 # load_embedding_model, load_chroma, retrieve, filter_hits
 # all imported from vector_store.py above — no duplication
 
+# ── API key helper ─────────────────────────────────────────────────────────────
+
+def get_groq_key() -> str:
+    """Read GROQ_API_KEY from st.secrets (Streamlit Cloud) or .env (local)."""
+    try:
+        return st.secrets["GROQ_API_KEY"]
+    except Exception:
+        return os.environ.get("GROQ_API_KEY", "")
+
 # ── Guardrail ───────────────────────────────────────────────────────────────────
 
 def is_skincare_question(question: str) -> bool:
     """Use Groq to classify if the question is skincare/makeup related."""
-    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    client = Groq(api_key=get_groq_key())
     response = client.chat.completions.create(
         model=GROQ_MODEL,
         messages=[
@@ -123,7 +132,7 @@ def build_context(hits: list[dict]) -> str:
 
 def generate_rag_answer(question: str, hits: list[dict]) -> str:
     """Generate answer grounded in retrieved chunks."""
-    client  = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    client  = Groq(api_key=get_groq_key())
     context = build_context(hits)
 
     user_message = f"""SOURCE CHUNKS:
@@ -148,7 +157,7 @@ Answer using only the source chunks above. Reference the sources explicitly."""
 
 def generate_fallback_answer(question: str) -> str:
     """Generate a general LLM answer when no good chunks are found."""
-    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+    client = Groq(api_key=get_groq_key())
 
     response = client.chat.completions.create(
         model=GROQ_MODEL,
@@ -185,7 +194,7 @@ except Exception as e:
     st.stop()
 
 # check groq key early
-groq_key = os.environ.get("GROQ_API_KEY", "")
+groq_key = get_groq_key()
 if not groq_key:
     st.error("GROQ_API_KEY not set. Add it to your environment variables and restart.")
     st.stop()
